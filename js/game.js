@@ -790,6 +790,68 @@ function attemptRemovePiece(pieceId) {
   }
 }
 
+/**
+ * Every cell's true exit route is: [catch up to the cell ahead of it in
+ * the chain, one stored-arrow step at a time, all the way back to the
+ * head's original cell] followed by [the head's own multi-step
+ * headExitPath]. This is exactly what the chain mechanic guarantees —
+ * canPieceExit() already verified headExitPath is clear of every OTHER
+ * piece, and the catch-up portion only ever crosses this SAME piece's
+ * own (safe) cells — so animating each cell along this full route can
+ * never visually cross a cell that still belongs to someone else.
+ *
+ * (Animating each cell along just its own single stored arrow — what
+ * this used to do — does not have that guarantee: that arrow only
+ * describes the one step to the cell ahead of it, not a safe direction
+ * to fly off the board in, which is exactly what let non-head cells,
+ * especially on short edge-adjacent pieces, visually sail straight
+ * through unrelated still-present pieces.)
+ */
+function buildCellFullExitPath(piece, cellIndex) {
+  const path = [];
+  for (let j = cellIndex; j >= 1; j--) {
+    const chainCell = piece.cells[j];
+    path.push(piece.arrows[cellKey(chainCell.r, chainCell.c)]);
+  }
+  for (const dir of piece.headExitPath) {
+    path.push(dir);
+  }
+  return path;
+}
+
+/** Web Animations keyframes tracing that full path, in cell-relative
+ *  percentages (100% = exactly one cell width/height, so this works
+ *  regardless of the board's actual pixel size). Ends with a final
+ *  flourish continuing past the board edge while fading out, so the
+ *  piece visibly leaves rather than just stopping at the boundary. */
+function buildCellExitKeyframes(piece, cellIndex) {
+  const fullPath = buildCellFullExitPath(piece, cellIndex);
+  const realSpan = 0.82; // fraction of the animation spent on the real, verified-clear route
+
+  let cumDC = 0;
+  let cumDR = 0;
+  const keyframes = [{ transform: 'translate(0%, 0%)', opacity: 1, offset: 0 }];
+
+  fullPath.forEach((dir, i) => {
+    cumDC += dir.dc;
+    cumDR += dir.dr;
+    keyframes.push({
+      transform: `translate(${cumDC * 100}%, ${cumDR * 100}%)`,
+      opacity: 1,
+      offset: ((i + 1) / fullPath.length) * realSpan,
+    });
+  });
+
+  const lastDir = fullPath[fullPath.length - 1];
+  keyframes.push({
+    transform: `translate(${(cumDC + lastDir.dc * 14) * 100}%, ${(cumDR + lastDir.dr * 14) * 100}%)`,
+    opacity: 0,
+    offset: 1,
+  });
+
+  return keyframes;
+}
+
 function removePieceWithAnimation(piece) {
   piece.removed = true;
   for (const cell of piece.cells) {
@@ -798,17 +860,17 @@ function removePieceWithAnimation(piece) {
 
   piece.cells.forEach((cell, index) => {
     const el = state.cellElements[cell.r][cell.c];
-    const dir = piece.arrows[cellKey(cell.r, cell.c)];
-    el.style.transitionDelay = (index * CONFIG.EXIT_STAGGER_MS) + 'ms';
-    el.classList.add('exit-' + dir.name.toLowerCase());
+    const keyframes = buildCellExitKeyframes(piece, index);
+    const anim = el.animate(keyframes, {
+      duration: CONFIG.EXIT_DURATION_MS,
+      delay: index * CONFIG.EXIT_STAGGER_MS,
+      easing: 'ease',
+      fill: 'forwards',
+    });
+    anim.onfinish = () => el.classList.add('cell-cleared');
   });
 
   const totalDelay = (piece.cells.length - 1) * CONFIG.EXIT_STAGGER_MS + CONFIG.EXIT_DURATION_MS;
-  setTimeout(() => {
-    for (const cell of piece.cells) {
-      state.cellElements[cell.r][cell.c].classList.add('cell-cleared');
-    }
-  }, totalDelay);
 
   state.clearedCells += piece.cells.length;
   updateProgressUI();
