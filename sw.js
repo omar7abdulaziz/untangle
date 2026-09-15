@@ -3,17 +3,22 @@
 /* ============================================================
    Untangle — service worker.
 
-   Cache-first for everything the app ships (so it opens and plays
-   fully offline once visited once); cross-origin requests (the
-   Google Fonts stylesheet/files) are left to the network as-is —
+   Stale-while-revalidate for everything the app ships: a cached hit
+   is returned immediately (so it opens and plays fully offline once
+   visited once), but every fetch — cache hit or not — also goes to
+   the network in the background and refreshes the cache for next
+   time. That self-heals a device stuck on an old version within one
+   extra reload, even if CACHE_VERSION below isn't bumped. Cross-origin
+   requests (the Google Fonts files) are left to the network as-is —
    if they fail offline the page still works, it just falls back to
-   its system-font stack, which is already accounted for in the CSS.
+   its system-font stack, already accounted for in the CSS.
 
-   Bump CACHE_VERSION whenever any shipped file changes so clients
-   pick up the new set instead of serving a stale cache forever.
+   Still bump CACHE_VERSION on any shipped-file change: it's what
+   forces an immediate switch to the new cache on activate, rather
+   than waiting on the background revalidation above.
    ============================================================ */
 
-const CACHE_VERSION = 'untangle-v1';
+const CACHE_VERSION = 'untangle-v2';
 
 const PRECACHE_URLS = [
   './',
@@ -62,15 +67,16 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req).then((response) => {
-        if (response && response.ok) {
-          const copy = response.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(req, copy));
-        }
-        return response;
-      }).catch(() => cached);
-    })
+    caches.open(CACHE_VERSION).then((cache) =>
+      cache.match(req).then((cached) => {
+        const networkFetch = fetch(req)
+          .then((response) => {
+            if (response && response.ok) cache.put(req, response.clone());
+            return response;
+          })
+          .catch(() => cached);
+        return cached || networkFetch;
+      })
+    )
   );
 });

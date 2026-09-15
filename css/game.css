@@ -8,9 +8,12 @@
 
 #app {
   min-height: 100%;
+  min-height: 100vh; /* fallback for browsers without dvh support */
+  min-height: 100dvh; /* iOS Safari's toolbar shrinks/grows the viewport; dvh tracks that live instead of a stale 100% chain */
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center; /* on tall screens, split leftover vertical space above/below instead of dumping it all below the board */
   padding: 18px 16px 40px;
   gap: 14px;
 }
