@@ -6,13 +6,14 @@
    File is split into four parts:
      1. Board generation (reverse construction + solvability proof)
      2. Difficulty presets
-     3. Game state + rules (piece exit check, attempts, progress)
+     3. Game state + rules (cell exit check, attempts, progress)
      4. Rendering + DOM interaction
 
-   Generation logic (parts 1) is unchanged from the previous
-   milestone except that MAX_PIECE_LEN is now a parameter instead of
-   a hardcoded constant, so difficulty presets can drive it without
-   touching the algorithm itself.
+   Every arrow cell is a fully independent unit — clicking one never
+   moves any other cell, regardless of what it unblocks. See the
+   part 1 comment block for how generation still produces real
+   dependency depth (not every cell trivially free at once) while
+   keeping that guarantee airtight.
    ============================================================ */
 
 // ---------------------------------------------------------------
@@ -21,11 +22,8 @@
 const CONFIG = Object.freeze({
   GRID_ROWS: 8,
   GRID_COLS: 10,
-  MAX_PIECE_LEN: 6,        // fallback longest piece, in cells
-  CONTINUE_BIAS: 0.72,     // chance to keep growing in the same direction
   MAX_ATTEMPTS: 3,         // player mistakes allowed per board
   MAX_GENERATION_TRIES: 5000,
-  EXIT_STAGGER_MS: 70,     // delay between each cell's exit animation
   EXIT_DURATION_MS: 380,   // must match --exit-duration in css/game.css
   SHAKE_DURATION_MS: 350,  // must match the cell-shake keyframes duration
   HINT_LIMIT: 1,           // free hints per board (separate from attempts — a hint is not a mistake)
@@ -42,16 +40,6 @@ const DIR = {
   RIGHT: { name: 'RIGHT', dr: 0, dc: 1 },
 };
 const ALL_DIRS = [DIR.UP, DIR.DOWN, DIR.LEFT, DIR.RIGHT];
-const OPPOSITE_OF = {
-  UP: DIR.DOWN,
-  DOWN: DIR.UP,
-  LEFT: DIR.RIGHT,
-  RIGHT: DIR.LEFT,
-};
-
-function opposite(dir) {
-  return OPPOSITE_OF[dir.name];
-}
 
 function inBounds(r, c, rows, cols) {
   return r >= 0 && r < rows && c >= 0 && c < cols;
@@ -64,117 +52,30 @@ function cellKey(r, c) {
 // =================================================================
 // 1. BOARD GENERATION
 //
-// Pieces are built in reverse. Each new piece starts from a cell
-// that is currently reachable from the board's edge through empty
-// cells only (its "head") — the route back to the edge may bend, so
-// we track it as a recorded sequence of directions (headExitPath),
-// not just a single direction. The piece then grows into the empty
-// interior, biased to keep going straight.
+// Every arrow cell is fully independent — no grouping of any kind.
+// A cell is removable only when the straight line from it, in its
+// own single drawn direction, is completely empty all the way off
+// the board.
 //
-// Because every cell a piece touches (its own body, and every cell
-// along its head's exit route) is empty *at build time*, each of
-// those cells will necessarily end up claimed by some piece built
-// *later*. Playing pieces back in the exact opposite order of
-// construction (last built = first removed) therefore always finds
-// every head's exit route clear — which is what makes the board
-// provably solvable.
+// Cells are placed one at a time, in reverse construction order,
+// same idea as always: a cell may only be placed with a direction
+// whose entire ray is CURRENTLY empty (isRayClear), which guarantees
+// that ray stays clear until this cell's turn to be removed (every
+// cell along it, being empty now, can only end up placed *later*,
+// hence removed *earlier* in reverse order).
 //
-// A per-cell connectivity guard (isSafeToFill) additionally makes
-// sure no placement ever strands empty cells in a sealed pocket, so
-// generation succeeds on the first attempt in practice; the outer
-// retry loop in generatePuzzle() is kept only as a safety net.
+// The one addition that matters here: before finalizing any
+// placement, wouldStrandAnyCell checks it doesn't leave some OTHER
+// still-empty cell with zero remaining ray options in any direction
+// — the same kind of connectivity guard used elsewhere in this
+// project, just adapted to straight rays instead of bendable BFS
+// paths. Without it, cells often get boxed in with no straight shot
+// to any edge and generation fails; with it, failures are rare and
+// the outer retry loop in generatePuzzle() is a safety net, not a
+// requirement. Picking whichever direction happens to be safe (not
+// always the nearest edge) is what gives boards real dependency
+// depth instead of every cell being trivially free from the start.
 // =================================================================
-
-/**
- * Multi-source BFS from the board's edge, through empty cells only.
- * Returns which empty cells are reachable from the edge, and for
- * each one, the direction to take one step back toward the edge
- * (chained, that eventually walks a cell off the board).
- */
-function computeBoundaryReachability(grid, rows, cols) {
-  const visited = new Set();
-  const parentDir = new Map();
-  const queue = [];
-
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (grid[r][c] !== null) continue;
-      const onEdge = r === 0 || r === rows - 1 || c === 0 || c === cols - 1;
-      if (!onEdge) continue;
-      for (const dir of ALL_DIRS) {
-        const nr = r + dir.dr;
-        const nc = c + dir.dc;
-        if (!inBounds(nr, nc, rows, cols)) {
-          const k = cellKey(r, c);
-          if (!visited.has(k)) {
-            visited.add(k);
-            parentDir.set(k, dir);
-            queue.push({ r, c });
-          }
-          break;
-        }
-      }
-    }
-  }
-
-  let head = 0;
-  while (head < queue.length) {
-    const { r, c } = queue[head++];
-    for (const dir of ALL_DIRS) {
-      const nr = r + dir.dr;
-      const nc = c + dir.dc;
-      if (!inBounds(nr, nc, rows, cols) || grid[nr][nc] !== null) continue;
-      const nk = cellKey(nr, nc);
-      if (visited.has(nk)) continue;
-      visited.add(nk);
-      parentDir.set(nk, opposite(dir));
-      queue.push({ r: nr, c: nc });
-    }
-  }
-
-  return { visited, parentDir };
-}
-
-/** Walks parentDir from (startR, startC) out to the board edge. */
-function reconstructExitPath(startR, startC, parentDir, rows, cols) {
-  const path = [];
-  let r = startR;
-  let c = startC;
-  let guard = rows * cols + 5; // defends against an unexpected cycle
-  while (guard-- > 0) {
-    const dir = parentDir.get(cellKey(r, c));
-    path.push(dir);
-    const nr = r + dir.dr;
-    const nc = c + dir.dc;
-    if (!inBounds(nr, nc, rows, cols)) break; // stepped off the board
-    r = nr;
-    c = nc;
-  }
-  return path;
-}
-
-function countEmptyCells(grid, rows, cols) {
-  let count = 0;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (grid[r][c] === null) count++;
-    }
-  }
-  return count;
-}
-
-/**
- * Would claiming (r,c) for `pieceId` leave every other still-empty cell
- * reachable from the board edge? Filling the last cell that connects two
- * pockets is only safe once nothing else remains to strand.
- */
-function isSafeToFill(grid, rows, cols, r, c, pieceId) {
-  grid[r][c] = pieceId;
-  const emptyAfter = countEmptyCells(grid, rows, cols);
-  const reachable = computeBoundaryReachability(grid, rows, cols).visited.size;
-  grid[r][c] = null;
-  return reachable === emptyAfter;
-}
 
 function shuffled(list) {
   const arr = list.slice();
@@ -185,68 +86,67 @@ function shuffled(list) {
   return arr;
 }
 
-/**
- * Grows one piece starting at (startR, startC), whose head exits the
- * board along `exitPath`. Mutates `grid`, marking claimed cells with
- * `pieceId`. Every extension is checked with isSafeToFill so the piece
- * never seals off empty cells elsewhere on the board. `maxPieceLen`
- * caps how long the piece can grow (difficulty knob only — the growth
- * rule itself is unchanged).
- */
-function growPiece(grid, rows, cols, startR, startC, exitPath, pieceId, maxPieceLen) {
-  const cells = [{ r: startR, c: startC }];
-  const arrows = {};
-  arrows[cellKey(startR, startC)] = exitPath[0];
-  grid[startR][startC] = pieceId;
-
-  let current = { r: startR, c: startC };
-  let growDir = null;
-  const targetLen = 1 + Math.floor(Math.random() * maxPieceLen);
-
-  for (let i = 1; i < targetLen; i++) {
-    const options = ALL_DIRS.filter((d) => {
-      const nr = current.r + d.dr;
-      const nc = current.c + d.dc;
-      return inBounds(nr, nc, rows, cols) && grid[nr][nc] === null;
-    });
-    if (options.length === 0) break;
-
-    let ordered;
-    if (growDir && options.some((d) => d.name === growDir.name) && Math.random() < CONFIG.CONTINUE_BIAS) {
-      ordered = [growDir, ...shuffled(options.filter((d) => d.name !== growDir.name))];
-    } else {
-      ordered = shuffled(options);
-    }
-
-    let chosen = null;
-    for (const candidate of ordered) {
-      const nr = current.r + candidate.dr;
-      const nc = current.c + candidate.dc;
-      if (isSafeToFill(grid, rows, cols, nr, nc, pieceId)) {
-        grid[nr][nc] = pieceId;
-        chosen = candidate;
-        cells.push({ r: nr, c: nc });
-        arrows[cellKey(nr, nc)] = opposite(candidate);
-        current = { r: nr, c: nc };
-        growDir = candidate;
-        break;
-      }
-    }
-    if (!chosen) break; // no safe extension left; finalize the piece here
+/** Is the straight ray from (r,c) in `dir`, all the way off the board, empty? */
+function isRayClear(grid, rows, cols, r, c, dir) {
+  let cr = r;
+  let cc = c;
+  while (inBounds(cr, cc, rows, cols)) {
+    if (grid[cr][cc] !== null) return false;
+    cr += dir.dr;
+    cc += dir.dc;
   }
+  return true;
+}
 
+function hasAnyClearRay(grid, rows, cols, r, c) {
+  for (const dir of ALL_DIRS) {
+    if (isRayClear(grid, rows, cols, r, c, dir)) return true;
+  }
+  return false;
+}
+
+/** Would placing a cell at (r,c) leave every OTHER still-empty cell with
+ *  at least one direction whose ray is still clear? */
+function wouldStrandAnyCell(grid, rows, cols, r, c, sentinelId) {
+  grid[r][c] = sentinelId;
+  let stranded = false;
+  for (let er = 0; er < rows && !stranded; er++) {
+    for (let ec = 0; ec < cols && !stranded; ec++) {
+      if (grid[er][ec] !== null) continue;
+      if (!hasAnyClearRay(grid, rows, cols, er, ec)) stranded = true;
+    }
+  }
+  grid[r][c] = null;
+  return stranded;
+}
+
+/** Exact number of straight-line steps in `dir` it takes (r,c) to leave the board. */
+function stepsToLeaveBoard(r, c, dir, rows, cols) {
+  if (dir.name === 'UP') return r + 1;
+  if (dir.name === 'DOWN') return rows - r;
+  if (dir.name === 'LEFT') return c + 1;
+  return cols - c; // RIGHT
+}
+
+/**
+ * One independent arrow cell at (r,c). Its entire identity is its own
+ * fixed direction: headExitPath is that direction, repeated exactly
+ * enough times to walk it off the board in a straight line.
+ */
+function makeIndependentCell(r, c, dir, id, rows, cols) {
+  const steps = stepsToLeaveBoard(r, c, dir, rows, cols);
   return {
-    id: pieceId,
-    cells,
-    arrows,
-    headExitPath: exitPath,
-    headDir: exitPath[0],
-    headCell: { r: startR, c: startC },
+    id,
+    cells: [{ r, c }],
+    arrows: { [cellKey(r, c)]: dir },
+    headExitPath: new Array(steps).fill(dir),
+    headDir: dir,
+    headCell: { r, c },
   };
 }
 
-/** One full attempt at filling the grid with pieces. Null on (rare) dead end. */
-function tryBuildPieces(rows, cols, maxPieceLen) {
+/** One full attempt at filling the grid. Null on a (rare) dead end. */
+function tryBuildPieces(rows, cols) {
   const grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
   const pieces = [];
   const totalCells = rows * cols;
@@ -254,35 +154,38 @@ function tryBuildPieces(rows, cols, maxPieceLen) {
   let nextId = 0;
 
   while (filled < totalCells) {
-    const { visited, parentDir } = computeBoundaryReachability(grid, rows, cols);
-    if (visited.size === 0) return null; // sealed pocket — dead end, retry generation
+    const cellCandidates = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (grid[r][c] !== null) continue;
+        const dirs = ALL_DIRS.filter((d) => isRayClear(grid, rows, cols, r, c, d));
+        if (dirs.length > 0) cellCandidates.push({ r, c, dirs });
+      }
+    }
+    if (cellCandidates.length === 0) return null; // dead end — retry generation
 
-    const candidateKeys = shuffled(Array.from(visited));
-    let head = null;
-    for (const k of candidateKeys) {
-      const [r, c] = k.split(',').map(Number);
-      if (isSafeToFill(grid, rows, cols, r, c, nextId)) {
-        head = { r, c };
+    let placed = false;
+    for (const cand of shuffled(cellCandidates)) {
+      if (!wouldStrandAnyCell(grid, rows, cols, cand.r, cand.c, nextId)) {
+        const dir = cand.dirs[Math.floor(Math.random() * cand.dirs.length)];
+        grid[cand.r][cand.c] = nextId;
+        pieces.push(makeIndependentCell(cand.r, cand.c, dir, nextId, rows, cols));
+        filled++;
+        nextId++;
+        placed = true;
         break;
       }
     }
-    if (!head) return null; // every candidate alone would strand another cell
-
-    const exitPath = reconstructExitPath(head.r, head.c, parentDir, rows, cols);
-    const piece = growPiece(grid, rows, cols, head.r, head.c, exitPath, nextId, maxPieceLen);
-    pieces.push(piece);
-    filled += piece.cells.length;
-    nextId++;
+    if (!placed) return null; // every candidate alone would strand something
   }
 
   return { pieces, cellOwner: grid };
 }
 
 /**
- * Can `piece` currently slide out, given `grid` (piece-id-or-null per
- * cell)? Walks the head's recorded exit route; the rest of the chain
- * only ever moves into cells vacated by its own earlier segments, so
- * it never needs its own collision check.
+ * Can this cell currently slide out, given `grid` (cell-id-or-null per
+ * cell)? Walks its own straight-line exit route cell by cell, exactly
+ * as drawn — the first still-occupied cell in the way blocks it.
  */
 function canPieceExit(grid, rows, cols, piece) {
   let r = piece.headCell.r;
@@ -310,9 +213,9 @@ function verifySolution(pieces, grid, rows, cols) {
 }
 
 /** Generates a board guaranteed solvable, retrying until verification passes. */
-function generatePuzzle(rows, cols, maxPieceLen) {
+function generatePuzzle(rows, cols) {
   for (let attempt = 0; attempt < CONFIG.MAX_GENERATION_TRIES; attempt++) {
-    const built = tryBuildPieces(rows, cols, maxPieceLen);
+    const built = tryBuildPieces(rows, cols);
     if (!built) continue;
 
     const verifyGrid = built.cellOwner.map((row) => row.slice());
@@ -326,15 +229,16 @@ function generatePuzzle(rows, cols, maxPieceLen) {
 // =================================================================
 // 2. DIFFICULTY PRESETS
 //
-// Purely parameters fed into the untouched generation algorithm
-// above — board size and max piece length only.
+// Purely a board-size parameter fed into the untouched generation
+// algorithm above — every cell is independent regardless of
+// difficulty, so there is nothing else to vary.
 // =================================================================
 
 const DIFFICULTY_PRESETS = {
-  easy: { rows: 6, cols: 6, maxPieceLen: 4, labelKey: 'diff_easy' },
-  medium: { rows: 8, cols: 10, maxPieceLen: 6, labelKey: 'diff_medium' },
-  hard: { rows: 10, cols: 13, maxPieceLen: 7, labelKey: 'diff_hard' },
-  nightmare: { rows: 13, cols: 16, maxPieceLen: 8, labelKey: 'diff_nightmare' },
+  easy: { rows: 6, cols: 6, labelKey: 'diff_easy' },
+  medium: { rows: 8, cols: 10, labelKey: 'diff_medium' },
+  hard: { rows: 10, cols: 13, labelKey: 'diff_hard' },
+  nightmare: { rows: 13, cols: 16, labelKey: 'diff_nightmare' },
 };
 
 /**
@@ -374,10 +278,9 @@ const ARROW_SVG_MARKUP =
 const state = {
   rows: CONFIG.GRID_ROWS,
   cols: CONFIG.GRID_COLS,
-  maxPieceLen: CONFIG.MAX_PIECE_LEN,
   difficultyKey: 'medium',
-  cellOwner: null,       // live grid: piece id or null per cell
-  pieces: {},            // id -> piece (+ removed flag)
+  cellOwner: null,       // live grid: cell id or null per cell
+  pieces: {},            // id -> independent single cell (+ removed flag)
   cellElements: null,    // 2D array of DOM nodes
   originalCellOwner: null,
   originalPiecesList: null,
@@ -424,7 +327,7 @@ function startNewPuzzle() {
   // transition-delay below means it never becomes visible at all.
   showLoadingIndicator();
   setTimeout(() => {
-    const puzzle = generatePuzzle(state.rows, state.cols, state.maxPieceLen);
+    const puzzle = generatePuzzle(state.rows, state.cols);
     hideLoadingIndicator();
     loadPuzzle(puzzle);
   }, 0);
@@ -748,59 +651,31 @@ function attemptRemovePiece(pieceId) {
   }
 }
 
-/**
- * Every cell's true exit route is: [catch up to the cell ahead of it in
- * the chain, one stored-arrow step at a time, all the way back to the
- * head's original cell] followed by [the head's own multi-step
- * headExitPath]. This is exactly what the chain mechanic guarantees —
- * canPieceExit() already verified headExitPath is clear of every OTHER
- * piece, and the catch-up portion only ever crosses this SAME piece's
- * own (safe) cells — so animating each cell along this full route can
- * never visually cross a cell that still belongs to someone else.
- *
- * (Animating each cell along just its own single stored arrow — what
- * this used to do — does not have that guarantee: that arrow only
- * describes the one step to the cell ahead of it, not a safe direction
- * to fly off the board in, which is exactly what let non-head cells,
- * especially on short edge-adjacent pieces, visually sail straight
- * through unrelated still-present pieces.)
- */
-function buildCellFullExitPath(piece, cellIndex) {
-  const path = [];
-  for (let j = cellIndex; j >= 1; j--) {
-    const chainCell = piece.cells[j];
-    path.push(piece.arrows[cellKey(chainCell.r, chainCell.c)]);
-  }
-  for (const dir of piece.headExitPath) {
-    path.push(dir);
-  }
-  return path;
-}
-
-/** Web Animations keyframes tracing that full path, in cell-relative
- *  percentages (100% = exactly one cell width/height, so this works
- *  regardless of the board's actual pixel size). Ends with a final
- *  flourish continuing past the board edge while fading out, so the
- *  piece visibly leaves rather than just stopping at the boundary. */
-function buildCellExitKeyframes(piece, cellIndex) {
-  const fullPath = buildCellFullExitPath(piece, cellIndex);
+/** Web Animations keyframes tracing this cell's own straight exit
+ *  route, in cell-relative percentages (100% = exactly one cell
+ *  width/height, so this works regardless of the board's actual pixel
+ *  size). Ends with a final flourish continuing past the board edge
+ *  while fading out, so the cell visibly leaves rather than just
+ *  stopping at the boundary. */
+function buildCellExitKeyframes(piece) {
+  const path = piece.headExitPath;
   const realSpan = 0.82; // fraction of the animation spent on the real, verified-clear route
 
   let cumDC = 0;
   let cumDR = 0;
   const keyframes = [{ transform: 'translate(0%, 0%)', opacity: 1, offset: 0 }];
 
-  fullPath.forEach((dir, i) => {
+  path.forEach((dir, i) => {
     cumDC += dir.dc;
     cumDR += dir.dr;
     keyframes.push({
       transform: `translate(${cumDC * 100}%, ${cumDR * 100}%)`,
       opacity: 1,
-      offset: ((i + 1) / fullPath.length) * realSpan,
+      offset: ((i + 1) / path.length) * realSpan,
     });
   });
 
-  const lastDir = fullPath[fullPath.length - 1];
+  const lastDir = path[path.length - 1];
   keyframes.push({
     transform: `translate(${(cumDC + lastDir.dc * 14) * 100}%, ${(cumDR + lastDir.dr * 14) * 100}%)`,
     opacity: 0,
@@ -812,25 +687,18 @@ function buildCellExitKeyframes(piece, cellIndex) {
 
 function removePieceWithAnimation(piece) {
   piece.removed = true;
-  for (const cell of piece.cells) {
-    state.cellOwner[cell.r][cell.c] = null;
-  }
+  const cell = piece.cells[0];
+  state.cellOwner[cell.r][cell.c] = null;
 
-  piece.cells.forEach((cell, index) => {
-    const el = state.cellElements[cell.r][cell.c];
-    const keyframes = buildCellExitKeyframes(piece, index);
-    const anim = el.animate(keyframes, {
-      duration: CONFIG.EXIT_DURATION_MS,
-      delay: index * CONFIG.EXIT_STAGGER_MS,
-      easing: 'ease',
-      fill: 'forwards',
-    });
-    anim.onfinish = () => el.classList.add('cell-cleared');
+  const el = state.cellElements[cell.r][cell.c];
+  const anim = el.animate(buildCellExitKeyframes(piece), {
+    duration: CONFIG.EXIT_DURATION_MS,
+    easing: 'ease',
+    fill: 'forwards',
   });
+  anim.onfinish = () => el.classList.add('cell-cleared');
 
-  const totalDelay = (piece.cells.length - 1) * CONFIG.EXIT_STAGGER_MS + CONFIG.EXIT_DURATION_MS;
-
-  state.clearedCells += piece.cells.length;
+  state.clearedCells += 1;
   updateProgressUI();
 
   if (state.clearedCells >= state.totalCells) {
@@ -840,7 +708,7 @@ function removePieceWithAnimation(piece) {
     setTimeout(() => {
       recordAndShowWinTime();
       showWinOverlay();
-    }, totalDelay + 150);
+    }, CONFIG.EXIT_DURATION_MS + 150);
   }
 }
 
@@ -925,7 +793,6 @@ function applyDifficultyToState() {
   const preset = resolveDifficulty();
   state.rows = preset.rows;
   state.cols = preset.cols;
-  state.maxPieceLen = preset.maxPieceLen;
   state.difficultyKey = preset.key;
   if (dom.difficultyBadge) {
     dom.difficultyBadge.dataset.i18n = preset.labelKey;
