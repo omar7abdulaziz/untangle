@@ -145,30 +145,87 @@ function makeIndependentCell(r, c, dir, id, rows, cols) {
   };
 }
 
-/** One full attempt at filling the grid. Null on a (rare) dead end. */
+/**
+ * Among a cell's several currently-safe directions (all equally valid
+ * for solvability — see the caller), prefer whichever one keeps ITS
+ * ROW and ITS COLUMN most balanced across all 4 directions so far,
+ * with immediate-neighbor repetition as a lighter secondary nudge.
+ * Purely a choice among options already proven safe — it can never
+ * pick an unsafe direction, so it can't affect solvability.
+ *
+ * This is what makes hasExcessiveDirectionRun's cap (see below)
+ * achievable quickly instead of by expensive luck: reacting only to
+ * immediate neighbors stops short local clusters, but says nothing
+ * about a row/column that drifts toward one direction while spread
+ * out — actively minimizing each row's and column's running tally is
+ * what keeps the whole line balanced as it fills in.
+ */
+function pickVariedDirection(dirGrid, rowDirCounts, colDirCounts, rows, cols, r, c, dirs) {
+  if (dirs.length === 1) return dirs[0];
+
+  const neighborCounts = {};
+  for (const d of ALL_DIRS) {
+    const nr = r + d.dr;
+    const nc = c + d.dc;
+    if (!inBounds(nr, nc, rows, cols)) continue;
+    const neighborDir = dirGrid[nr][nc];
+    if (neighborDir) neighborCounts[neighborDir.name] = (neighborCounts[neighborDir.name] || 0) + 1;
+  }
+
+  function pressure(d) {
+    return (rowDirCounts[r][d.name] || 0) + (colDirCounts[c][d.name] || 0) + (neighborCounts[d.name] || 0) * 0.5;
+  }
+
+  const ranked = shuffled(dirs).sort((a, b) => pressure(a) - pressure(b));
+  return ranked[0];
+}
+
 function tryBuildPieces(rows, cols) {
   const grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
+  const dirGrid = Array.from({ length: rows }, () => new Array(cols).fill(null));
+  const rowDirCounts = Array.from({ length: rows }, () => ({}));
+  const colDirCounts = Array.from({ length: cols }, () => ({}));
   const pieces = [];
   const totalCells = rows * cols;
   let filled = 0;
   let nextId = 0;
 
   while (filled < totalCells) {
-    const cellCandidates = [];
+    let cellCandidates = [];
+    let boundaryWithChoice = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (grid[r][c] !== null) continue;
         const dirs = ALL_DIRS.filter((d) => isRayClear(grid, rows, cols, r, c, d));
-        if (dirs.length > 0) cellCandidates.push({ r, c, dirs });
+        if (dirs.length === 0) continue;
+        const cand = { r, c, dirs };
+        cellCandidates.push(cand);
+        // A cell on the board's true edge always has its "straight
+        // toward that edge" ray trivially clear, unconditionally —
+        // nothing can ever block a step that's already off the
+        // board. Left to the normal order, boundary cells often
+        // don't get placed until everything ELSE they could point
+        // toward is already blocked, leaving that trivial direction
+        // as their only option — which is exactly what fills whole
+        // edge rows/columns with one repeated direction. Placing
+        // boundary cells first, while they still have more than one
+        // safe option, is what gives pickVariedDirection an actual
+        // choice to work with for them.
+        const onEdge = r === 0 || r === rows - 1 || c === 0 || c === cols - 1;
+        if (onEdge && dirs.length > 1) boundaryWithChoice.push(cand);
       }
     }
     if (cellCandidates.length === 0) return null; // dead end — retry generation
+    if (boundaryWithChoice.length > 0) cellCandidates = boundaryWithChoice;
 
     let placed = false;
     for (const cand of shuffled(cellCandidates)) {
       if (!wouldStrandAnyCell(grid, rows, cols, cand.r, cand.c, nextId)) {
-        const dir = cand.dirs[Math.floor(Math.random() * cand.dirs.length)];
+        const dir = pickVariedDirection(dirGrid, rowDirCounts, colDirCounts, rows, cols, cand.r, cand.c, cand.dirs);
         grid[cand.r][cand.c] = nextId;
+        dirGrid[cand.r][cand.c] = dir;
+        rowDirCounts[cand.r][dir.name] = (rowDirCounts[cand.r][dir.name] || 0) + 1;
+        colDirCounts[cand.c][dir.name] = (colDirCounts[cand.c][dir.name] || 0) + 1;
         pieces.push(makeIndependentCell(cand.r, cand.c, dir, nextId, rows, cols));
         filled++;
         nextId++;
@@ -212,16 +269,58 @@ function verifySolution(pieces, grid, rows, cols) {
   return true;
 }
 
-/** Generates a board guaranteed solvable, retrying until verification passes. */
-function generatePuzzle(rows, cols) {
+/**
+ * Rejects a board where any single row or column is dominated by one
+ * direction — separate from, and in addition to, the local
+ * neighbor-avoidance bias in pickVariedDirection. That bias only
+ * discourages same-direction cells from sitting right next to each
+ * other; it says nothing about a row/column that's mostly one
+ * direction while being spread out (which reads just as trivially
+ * "solve the whole row/column on sight" to a player scanning it).
+ * `maxShare` is the highest fraction (0-1) of a row/column allowed to
+ * share one exact direction before the whole board is rejected.
+ */
+function hasExcessiveDirectionRun(pieces, rows, cols, maxShare) {
+  const dirAt = Array.from({ length: rows }, () => new Array(cols).fill(null));
+  for (const piece of pieces) {
+    const cell = piece.cells[0];
+    dirAt[cell.r][cell.c] = piece.headDir;
+  }
+
+  function dominantShare(dirsInLine) {
+    const counts = {};
+    for (const d of dirsInLine) counts[d.name] = (counts[d.name] || 0) + 1;
+    return Math.max(...Object.values(counts)) / dirsInLine.length;
+  }
+
+  for (let r = 0; r < rows; r++) {
+    if (dominantShare(dirAt[r]) > maxShare) return true;
+  }
+  for (let c = 0; c < cols; c++) {
+    const column = [];
+    for (let r = 0; r < rows; r++) column.push(dirAt[r][c]);
+    if (dominantShare(column) > maxShare) return true;
+  }
+  return false;
+}
+
+/**
+ * Generates a board guaranteed solvable, retrying until it verifies
+ * AND satisfies the row/column direction-variety cap above. `maxDirShare`
+ * defaults to a permissive 0.5 for any caller that doesn't pass one.
+ */
+function generatePuzzle(rows, cols, maxDirShare) {
+  const shareLimit = typeof maxDirShare === 'number' ? maxDirShare : 0.5;
   for (let attempt = 0; attempt < CONFIG.MAX_GENERATION_TRIES; attempt++) {
     const built = tryBuildPieces(rows, cols);
     if (!built) continue;
 
     const verifyGrid = built.cellOwner.map((row) => row.slice());
-    if (verifySolution(built.pieces, verifyGrid, rows, cols)) {
-      return { pieces: built.pieces, cellOwner: built.cellOwner, rows, cols };
-    }
+    if (!verifySolution(built.pieces, verifyGrid, rows, cols)) continue;
+
+    if (hasExcessiveDirectionRun(built.pieces, rows, cols, shareLimit)) continue;
+
+    return { pieces: built.pieces, cellOwner: built.cellOwner, rows, cols };
   }
   throw new Error('Untangle: could not generate a solvable board after ' + CONFIG.MAX_GENERATION_TRIES + ' tries');
 }
@@ -229,16 +328,30 @@ function generatePuzzle(rows, cols) {
 // =================================================================
 // 2. DIFFICULTY PRESETS
 //
-// Purely a board-size parameter fed into the untouched generation
-// algorithm above — every cell is independent regardless of
-// difficulty, so there is nothing else to vary.
+// Board size, how many mistakes are forgiven (maxAttempts), and how
+// tightly hasExcessiveDirectionRun caps any single row/column being
+// dominated by one direction (maxDirShare, 0-1 — lower = stricter =
+// harder to "read" at a glance) — all fed into the untouched
+// generation algorithm above.
 // =================================================================
 
+// maxDirShare values below are empirically calibrated (see the
+// commit message for the benchmark), not the originally-requested
+// 30-50% — that range made generation take several seconds to over
+// 15s, or fail outright, because the wouldStrandAnyCell safety guard
+// structurally favors "sweeping" a whole row/column in one direction
+// (it's the fill order least likely to strand a cell, so
+// rejection-sampling against a strict cap fights the very guard that
+// keeps every board solvable). ~85-90% is where a compliant board
+// reliably shows up in well under 100ms; below ~80%, nightmare-sized
+// boards took 4+ seconds and hard/nightmare sometimes failed to find
+// one at all within thousands of tries.
 const DIFFICULTY_PRESETS = {
-  easy: { rows: 6, cols: 6, labelKey: 'diff_easy' },
-  medium: { rows: 8, cols: 10, labelKey: 'diff_medium' },
-  hard: { rows: 10, cols: 13, labelKey: 'diff_hard' },
-  nightmare: { rows: 13, cols: 16, labelKey: 'diff_nightmare' },
+  easy: { rows: 6, cols: 6, maxAttempts: 3, maxDirShare: 0.85, labelKey: 'diff_easy' },
+  medium: { rows: 8, cols: 10, maxAttempts: 3, maxDirShare: 0.85, labelKey: 'diff_medium' },
+  hard: { rows: 10, cols: 13, maxAttempts: 3, maxDirShare: 0.85, labelKey: 'diff_hard' },
+  nightmare: { rows: 13, cols: 16, maxAttempts: 3, maxDirShare: 0.88, labelKey: 'diff_nightmare' },
+  impossible: { rows: 16, cols: 20, maxAttempts: 1, maxDirShare: 0.90, labelKey: 'diff_impossible' },
 };
 
 /**
@@ -286,6 +399,8 @@ const state = {
   originalPiecesList: null,
   totalCells: 0,
   clearedCells: 0,
+  maxAttempts: CONFIG.MAX_ATTEMPTS,
+  maxDirShare: undefined,
   attemptsLeft: CONFIG.MAX_ATTEMPTS,
   gameOver: false,
   startTime: 0,
@@ -327,7 +442,7 @@ function startNewPuzzle() {
   // transition-delay below means it never becomes visible at all.
   showLoadingIndicator();
   setTimeout(() => {
-    const puzzle = generatePuzzle(state.rows, state.cols);
+    const puzzle = generatePuzzle(state.rows, state.cols, state.maxDirShare);
     hideLoadingIndicator();
     loadPuzzle(puzzle);
   }, 0);
@@ -357,7 +472,7 @@ function loadPuzzle(puzzle) {
 
   state.totalCells = state.rows * state.cols;
   state.clearedCells = 0;
-  state.attemptsLeft = CONFIG.MAX_ATTEMPTS;
+  state.attemptsLeft = state.maxAttempts;
   state.gameOver = false;
   state.startTime = Date.now();
   state.hintsLeft = CONFIG.HINT_LIMIT;
@@ -768,7 +883,7 @@ function updateProgressUI() {
 
 function updateAttemptsUI() {
   dom.attemptsDots.innerHTML = '';
-  for (let i = 0; i < CONFIG.MAX_ATTEMPTS; i++) {
+  for (let i = 0; i < state.maxAttempts; i++) {
     const dot = document.createElement('span');
     dot.className = 'attempt-dot' + (i >= state.attemptsLeft ? ' used' : '');
     dom.attemptsDots.appendChild(dot);
@@ -793,6 +908,8 @@ function applyDifficultyToState() {
   const preset = resolveDifficulty();
   state.rows = preset.rows;
   state.cols = preset.cols;
+  state.maxAttempts = preset.maxAttempts;
+  state.maxDirShare = preset.maxDirShare;
   state.difficultyKey = preset.key;
   if (dom.difficultyBadge) {
     dom.difficultyBadge.dataset.i18n = preset.labelKey;

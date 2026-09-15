@@ -178,7 +178,7 @@
 
 .difficulty-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 18px;
 }
 
@@ -211,6 +211,7 @@
 .dot-medium { background: #1f6f5c; }
 .dot-hard { background: #b8763f; }
 .dot-nightmare { background: #c9622b; }
+.dot-impossible { background: #7a1f2b; }
 
 .difficulty-card h3 {
   font-size: 19px;
