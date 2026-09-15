@@ -21,6 +21,7 @@
   --color-warn: #c9622b;
   --color-warn-tint: rgba(201, 98, 43, 0.14);
   --color-piece-line: #2b2b33;
+  --color-cell-fill: #eadfc7;
 
   --color-card: rgba(255, 255, 255, 0.6);
   --color-card-strong: rgba(255, 255, 255, 0.82);
@@ -59,6 +60,7 @@
     --color-warn: #e0824c;
     --color-warn-tint: rgba(224, 130, 76, 0.16);
     --color-piece-line: #f3ede2;
+    --color-cell-fill: #332f27;
     --color-card: rgba(255, 255, 255, 0.05);
     --color-card-strong: rgba(38, 36, 32, 0.92);
     --color-border: rgba(255, 255, 255, 0.09);
@@ -80,6 +82,7 @@
   --color-warn: #e0824c;
   --color-warn-tint: rgba(224, 130, 76, 0.16);
   --color-piece-line: #f3ede2;
+  --color-cell-fill: #332f27;
   --color-card: rgba(255, 255, 255, 0.05);
   --color-card-strong: rgba(38, 36, 32, 0.92);
   --color-border: rgba(255, 255, 255, 0.09);

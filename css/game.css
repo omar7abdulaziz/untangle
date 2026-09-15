@@ -251,6 +251,11 @@ body {
   justify-content: center;
   aspect-ratio: 1 / 1;
   border-radius: 9px;
+  /* One flat fill for every occupied cell, no exceptions — there is no
+     per-piece or per-cell color coding. The only other cell states are
+     .shake (temporary error) and .kbd-focus (keyboard cursor), each
+     its own single distinct treatment below. */
+  background: var(--color-cell-fill);
   color: var(--color-piece-line);
   cursor: pointer;
   box-shadow: inset 0 0 0 1px rgba(27, 27, 27, 0.06);

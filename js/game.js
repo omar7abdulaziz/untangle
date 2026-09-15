@@ -361,51 +361,10 @@ function formatClockTime(ms) {
 // 3 & 4. GAME STATE, RENDERING, INTERACTION
 // =================================================================
 
-// Curated warm/cool palette (distinct from the brand's teal accent and
-// warning orange) so pieces read as clearly separate shapes without
-// looking like a random-hue rainbow. Untouched from the previous
-// milestone — dark mode uses its own separate palette below rather
-// than modifying this one.
-const PIECE_PALETTE = [
-  '#CFE3DC', '#F1D9B5', '#E8C7BA', '#C9DCE0',
-  '#DAD2C2', '#E4D3E0', '#CFE0C9', '#F0E1C3',
-  '#D6C9DC', '#E0D2C0', '#C7D9DA', '#EAD6C6',
-];
-
-// Same hue relationships, deepened/muted so they read clearly against
-// the dark theme's near-black board instead of glowing like pastels
-// would.
-const PIECE_PALETTE_DARK = [
-  '#3B5A4E', '#5A4A2E', '#5A3D35', '#33454A',
-  '#4A4436', '#4A3B47', '#3A4A38', '#4F4530',
-  '#403A47', '#473F35', '#354142', '#4A3E34',
-];
-
-function isDarkTheme() {
-  return document.documentElement.dataset.theme === 'dark';
-}
-
-function getPieceColor(id) {
-  const palette = isDarkTheme() ? PIECE_PALETTE_DARK : PIECE_PALETTE;
-  const index = (id * 7) % palette.length;
-  return palette[index];
-}
-
-/** Re-applies piece colors to already-rendered cells after a theme switch
- *  (their background is an inline JS style, so CSS variables alone can't
- *  update it). */
-function repaintPieceColors() {
-  if (!state.cellElements) return;
-  for (let r = 0; r < state.rows; r++) {
-    for (let c = 0; c < state.cols; c++) {
-      const pieceId = state.cellOwner[r][c];
-      const el = state.cellElements[r][c];
-      if (pieceId !== null && el) el.style.backgroundColor = getPieceColor(pieceId);
-    }
-  }
-}
-
-document.addEventListener('untangle:themechange', repaintPieceColors);
+// Every occupied cell shares one flat fill color (see .cell in
+// css/game.css, --color-cell-fill) — there is no per-piece color
+// coding. Only two other visual states exist: the shake/error ring
+// (.cell.shake) and the keyboard-focus ring (.cell.kbd-focus).
 
 const ARROW_SVG_MARKUP =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
@@ -547,7 +506,6 @@ function renderBoard() {
       if (pieceId !== null) {
         const piece = state.pieces[pieceId];
         const dir = piece.arrows[cellKey(r, c)];
-        cellEl.style.backgroundColor = getPieceColor(pieceId);
 
         const arrowWrap = document.createElement('span');
         arrowWrap.className = 'arrow-icon dir-' + dir.name.toLowerCase();
