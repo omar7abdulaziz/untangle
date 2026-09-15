@@ -510,11 +510,27 @@ function loadPuzzle(puzzle) {
   moveFocusTo(findFirstOccupiedCell());
 }
 
+/**
+ * Sets the board's pixel height from its actual (CSS-driven) width so
+ * every row/column comes out square. Deliberately NOT done with the
+ * CSS `aspect-ratio` property: combined with `display: grid` and `1fr`
+ * row tracks, WebKit (real Safari/iOS — confirmed with a WebKit-engine
+ * test, not just assumed) fails to size the grid at all and collapses
+ * it to a few pixels tall, even though Chromium renders it correctly.
+ * An explicit pixel height sidesteps that engine difference entirely.
+ */
+function sizeBoardToViewport() {
+  const width = dom.board.getBoundingClientRect().width;
+  if (width <= 0) return;
+  const height = width * (state.rows / state.cols);
+  dom.board.style.height = height + 'px';
+}
+
 function renderBoard() {
   dom.board.innerHTML = '';
   dom.board.style.gridTemplateColumns = 'repeat(' + state.cols + ', 1fr)';
   dom.board.style.gridTemplateRows = 'repeat(' + state.rows + ', 1fr)';
-  dom.board.style.aspectRatio = state.cols + ' / ' + state.rows;
+  sizeBoardToViewport();
 
   state.cellElements = Array.from({ length: state.rows }, () => new Array(state.cols).fill(null));
 
@@ -916,6 +932,13 @@ function initMuteButton() {
   });
 }
 
+let resizeRaf = null;
+function onViewportResize() {
+  if (!state.cellElements) return; // board not rendered yet
+  if (resizeRaf) cancelAnimationFrame(resizeRaf);
+  resizeRaf = requestAnimationFrame(sizeBoardToViewport);
+}
+
 function init() {
   cacheDom();
   applyDifficultyToState();
@@ -927,6 +950,8 @@ function init() {
   dom.newPuzzleBtn.addEventListener('click', startNewPuzzle);
   dom.retryBtn.addEventListener('click', resetCurrentPuzzle);
   dom.newLevelBtn.addEventListener('click', startNewPuzzle);
+  window.addEventListener('resize', onViewportResize);
+  window.addEventListener('orientationchange', onViewportResize);
   startNewPuzzle();
 }
 
