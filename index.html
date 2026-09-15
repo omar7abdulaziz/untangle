@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('untangle:theme');
+      if (saved === 'dark' || saved === 'light') {
+        document.documentElement.dataset.theme = saved;
+      }
+    } catch (e) { /* storage unavailable — CSS still falls back to prefers-color-scheme */ }
+  })();
+</script>
+
+<title>Untangle — A Calm Sliding Puzzle</title>
+<meta name="description" content="Untangle: a calm, elegant sliding puzzle. Every board is a tangle of arrows — slide each piece free in the right order and the whole thing comes undone.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Untangle — A Calm Sliding Puzzle">
+<meta property="og:description" content="Every board is a tangle of arrows. Slide each piece free in the right order and the whole thing comes undone.">
+<meta property="og:image" content="assets/og-image.svg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Untangle — A Calm Sliding Puzzle">
+<meta name="twitter:description" content="A calm puzzle of knots and lines.">
+<meta name="twitter:image" content="assets/og-image.svg">
+
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1F6F5C">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+
+<link rel="stylesheet" href="css/shared.css">
+<link rel="stylesheet" href="css/landing.css">
+</head>
+<body data-title-key="title_landing">
+
+  <header class="site-nav">
+    <div class="container site-nav-inner">
+      <a class="brand-mark" href="index.html">
+        <span class="brand-name">Untangle</span>
+      </a>
+      <div class="site-nav-actions">
+        <button class="btn btn-icon icon-swap" id="theme-toggle-btn" type="button" data-theme-toggle data-i18n-attr="aria-label:theme_dark">
+          <svg class="icon-theme-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4.5"/>
+            <path d="M12 3 V5.5 M12 18.5 V21 M3 12 H5.5 M18.5 12 H21 M5.6 5.6 L7.3 7.3 M16.7 16.7 L18.4 18.4 M18.4 5.6 L16.7 7.3 M7.3 16.7 L5.6 18.4"/>
+          </svg>
+          <svg class="icon-theme-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" hidden>
+            <path d="M20 14.5 A8.5 8.5 0 1 1 9.5 4 A6.8 6.8 0 0 0 20 14.5 Z"/>
+          </svg>
+        </button>
+        <button class="lang-toggle" type="button" data-lang-toggle>العربية</button>
+        <a class="btn btn-primary btn-small" href="play.html?difficulty=medium" data-i18n="nav_play">Play</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container hero-inner">
+        <p class="hero-kicker" data-i18n="hero_kicker">A quiet sliding puzzle</p>
+        <h1 class="hero-title" data-i18n="hero_title">Untangle</h1>
+        <p class="hero-subtitle" data-i18n="hero_subtitle">
+          Every board is a tangle of arrows. Slide each piece free in the right order and the whole thing comes undone.
+        </p>
+        <a class="btn btn-primary btn-hero" href="#difficulty" data-i18n="hero_cta">Play Now</a>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <svg viewBox="0 0 220 220" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="18" y="18" width="52" height="52" rx="12" opacity="0.85"/>
+          <path d="M70 44 H108" opacity="0.85"/>
+          <path d="M98 34 L108 44 L98 54" opacity="0.85"/>
+
+          <rect x="150" y="20" width="52" height="52" rx="12" opacity="0.5"/>
+          <path d="M176 72 V108" opacity="0.5"/>
+          <path d="M166 98 L176 108 L186 98" opacity="0.5"/>
+
+          <rect x="18" y="150" width="52" height="52" rx="12" opacity="0.65"/>
+          <path d="M70 176 H108" opacity="0.65"/>
+          <path d="M98 166 L108 176 L98 186" opacity="0.65"/>
+
+          <rect x="150" y="150" width="52" height="52" rx="12" opacity="0.3"/>
+        </svg>
+      </div>
+    </section>
+
+    <section class="how-to-play" id="how-to-play">
+      <div class="container">
+        <h2 data-i18n="how_title">How to play</h2>
+        <div class="steps-grid">
+          <div class="step-card glass-card">
+            <div class="step-icon">
+              <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="16" y="20" width="32" height="28" rx="8"/>
+                <path d="M32 6 V13"/>
+                <path d="M21 9 L25 15"/>
+                <path d="M43 9 L39 15"/>
+                <circle cx="32" cy="34" r="2" fill="currentColor" stroke="none"/>
+              </svg>
+            </div>
+            <h3 data-i18n="how_1_title">Tap a piece</h3>
+            <p data-i18n="how_1_body">Every group of cells is one piece, marked with its own arrows.</p>
+          </div>
+
+          <div class="step-card glass-card">
+            <div class="step-icon">
+              <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 48 H32 V22"/>
+                <path d="M26 28 L32 22 L38 28"/>
+                <circle cx="14" cy="48" r="3" fill="currentColor" stroke="none"/>
+              </svg>
+            </div>
+            <h3 data-i18n="how_2_title">Follow its arrows</h3>
+            <p data-i18n="how_2_body">The arrows trace the exact path the piece would slide along.</p>
+          </div>
+
+          <div class="step-card glass-card">
+            <div class="step-icon">
+              <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="44" y1="10" x2="44" y2="54" stroke-dasharray="4 6" opacity="0.5"/>
+                <rect x="10" y="25" width="20" height="16" rx="6"/>
+                <path d="M34 33 H52"/>
+                <path d="M46 27 L52 33 L46 39"/>
+              </svg>
+            </div>
+            <h3 data-i18n="how_3_title">Clear path, clean exit</h3>
+            <p data-i18n="how_3_body">If nothing blocks that path, the piece slides off the board.</p>
+          </div>
+
+          <div class="step-card glass-card">
+            <div class="step-icon">
+              <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="12" y="12" width="40" height="40" rx="10"/>
+                <path d="M21 32 L29 40 L44 23"/>
+              </svg>
+            </div>
+            <h3 data-i18n="how_4_title">Empty the board</h3>
+            <p data-i18n="how_4_body">Clear every piece before you run out of attempts to win.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="difficulty" id="difficulty">
+      <div class="container">
+        <h2 data-i18n="difficulty_title">Choose your difficulty</h2>
+        <p class="difficulty-subtitle" data-i18n="difficulty_subtitle">Board size and piece length scale up — the puzzle logic stays exactly the same.</p>
+
+        <div class="difficulty-grid">
+          <a class="difficulty-card glass-card" href="play.html?difficulty=easy" data-difficulty="easy">
+            <span class="difficulty-dot dot-easy" aria-hidden="true"></span>
+            <h3 data-i18n="diff_easy">Easy</h3>
+            <p data-i18n="diff_easy_desc">A small board and short pieces. Good for a first try.</p>
+            <span class="difficulty-grid-label"><span data-i18n="diff_grid_label">Grid</span> 6×6</span>
+            <span class="difficulty-play-cta" data-i18n="diff_play">Play</span>
+          </a>
+
+          <a class="difficulty-card glass-card" href="play.html?difficulty=medium" data-difficulty="medium">
+            <span class="difficulty-dot dot-medium" aria-hidden="true"></span>
+            <h3 data-i18n="diff_medium">Medium</h3>
+            <p data-i18n="diff_medium_desc">A balanced board with a bit more tangle.</p>
+            <span class="difficulty-grid-label"><span data-i18n="diff_grid_label">Grid</span> 8×10</span>
+            <span class="difficulty-play-cta" data-i18n="diff_play">Play</span>
+          </a>
+
+          <a class="difficulty-card glass-card" href="play.html?difficulty=hard" data-difficulty="hard">
+            <span class="difficulty-dot dot-hard" aria-hidden="true"></span>
+            <h3 data-i18n="diff_hard">Hard</h3>
+            <p data-i18n="diff_hard_desc">A large board with long, winding pieces.</p>
+            <span class="difficulty-grid-label"><span data-i18n="diff_grid_label">Grid</span> 10×13</span>
+            <span class="difficulty-play-cta" data-i18n="diff_play">Play</span>
+          </a>
+
+          <a class="difficulty-card glass-card" href="play.html?difficulty=nightmare" data-difficulty="nightmare">
+            <span class="difficulty-dot dot-nightmare" aria-hidden="true"></span>
+            <h3 data-i18n="diff_nightmare">Nightmare</h3>
+            <p data-i18n="diff_nightmare_desc">As big and as tangled as it gets.</p>
+            <span class="difficulty-grid-label"><span data-i18n="diff_grid_label">Grid</span> 13×16</span>
+            <span class="difficulty-play-cta" data-i18n="diff_play">Play</span>
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p class="footer-signature">Made by Omar</p>
+  </footer>
+
+  <script src="js/i18n.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/landing.js"></script>
+  <script src="js/sw-register.js"></script>
+</body>
+</html>

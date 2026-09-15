@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#F7F3EC"/>
+  <circle cx="1040" cy="120" r="220" fill="#1F6F5C" opacity="0.06"/>
+  <circle cx="120" cy="560" r="180" fill="#C9622B" opacity="0.05"/>
+
+  <g transform="translate(150,205)">
+    <path d="M40 150 C10 110 15 65 65 45 C120 22 165 65 130 100 C100 128 55 118 62 88"
+          fill="none" stroke="#1F6F5C" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M62 88 L20 78 M62 88 L38 130"
+          fill="none" stroke="#1F6F5C" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text x="360" y="300" font-family="Georgia, 'Playfair Display', serif" font-size="96" font-weight="700" fill="#1B1B1B">Untangle</text>
+  <text x="362" y="360" font-family="Georgia, sans-serif" font-size="30" fill="rgba(27,27,27,0.62)">A calm puzzle of knots and lines.</text>
+</svg>

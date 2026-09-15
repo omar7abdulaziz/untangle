@@ -1,0 +1,21 @@
+{
+  "name": "Untangle — A Calm Sliding Puzzle",
+  "short_name": "Untangle",
+  "description": "A calm, elegant sliding puzzle. Every board is a tangle of arrows — slide each piece free in the right order.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F7F3EC",
+  "theme_color": "#1F6F5C",
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "assets/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

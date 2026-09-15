@@ -1,0 +1,429 @@
+/* ============================================================
+   Untangle — game page.
+   ============================================================ */
+
+:root {
+  --exit-duration: 0.38s; /* must match CONFIG.EXIT_DURATION_MS in js/game.js */
+}
+
+#app {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 16px 40px;
+  gap: 14px;
+}
+
+/* This page is tap-only (no drag gestures), but on mobile a finger
+   that drifts a pixel or two while tapping a cell can otherwise be
+   read as the start of a page scroll/rubber-band, delaying or
+   swallowing the tap. Keeping normal vertical scroll outside the
+   board, while telling the browser the board itself is not a pan
+   surface, avoids that without disabling scrolling altogether. */
+body {
+  overscroll-behavior-y: contain;
+}
+
+/* ---------- Top bar ---------- */
+
+.game-topbar {
+  width: 100%;
+  max-width: 640px;
+}
+
+.game-topbar-inner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  row-gap: 8px;
+  padding: 10px 14px;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+
+@media (max-width: 480px) {
+  .game-topbar-inner {
+    gap: 8px;
+  }
+  .topbar-actions {
+    gap: 6px;
+  }
+  .topbar-actions .btn-icon {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+.topbar-brand {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 17px;
+  text-decoration: none;
+  color: var(--color-ink);
+}
+
+.difficulty-badge {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-primary-dark);
+  background: var(--color-primary-tint);
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+/* ---------- HUD ---------- */
+
+.hud {
+  width: 100%;
+  max-width: 640px;
+  padding: 16px 18px;
+}
+
+.hud-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 18px;
+}
+
+.progress-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 160px;
+  min-width: 140px;
+}
+
+.progress-bar {
+  flex: 1 1 auto;
+  height: 10px;
+  background: var(--color-bg-alt);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+}
+
+#progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--color-primary);
+  border-radius: var(--radius-pill);
+  transition: width 0.3s cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+
+#progress-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-ink-soft);
+  min-width: 36px;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.attempts-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.attempts-caption {
+  font-size: 12px;
+  color: var(--color-ink-faint);
+  font-weight: 600;
+}
+
+#attempts-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.attempt-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  border: 1.5px solid var(--color-primary);
+  transition: background 0.2s ease, opacity 0.2s ease;
+}
+
+.attempt-dot.used {
+  background: transparent;
+  opacity: 0.4;
+}
+
+.hud .btn-small {
+  margin-inline-start: auto;
+}
+
+@media (max-width: 480px) {
+  .hud .btn-small {
+    margin-inline-start: 0;
+  }
+}
+
+/* ---------- Board ---------- */
+
+#board-wrap {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+#board {
+  display: grid;
+  gap: 4px;
+  width: min(94vw, 600px);
+  background: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 6px;
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* ---------- Loading state (only appears if generation is slow) ---------- */
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: rgba(247, 243, 236, 0.78);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.25s ease 0.2s, visibility 0s linear 0.45s;
+}
+
+.loading-overlay.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 0.25s ease 0.2s, visibility 0s linear 0.2s;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .loading-overlay {
+    background: rgba(28, 27, 24, 0.78);
+  }
+}
+
+:root[data-theme='dark'] .loading-overlay {
+  background: rgba(28, 27, 24, 0.78);
+}
+
+.loading-spinner {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  animation: loading-spin 0.8s linear infinite;
+}
+
+@keyframes loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+.cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  border-radius: 9px;
+  color: var(--color-piece-line);
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(27, 27, 27, 0.06);
+  transition: transform var(--exit-duration) ease, opacity var(--exit-duration) ease, box-shadow 0.2s ease;
+  will-change: transform, opacity;
+  touch-action: manipulation;
+}
+
+.cell .arrow-icon {
+  width: 46%;
+  height: 46%;
+  pointer-events: none;
+  transition: transform 0.15s ease;
+}
+
+.cell .arrow-icon.dir-right { transform: rotate(0deg); }
+.cell .arrow-icon.dir-down { transform: rotate(90deg); }
+.cell .arrow-icon.dir-left { transform: rotate(180deg); }
+.cell .arrow-icon.dir-up { transform: rotate(-90deg); }
+
+/* Blocked-move feedback: a small shake plus a warm warning pulse */
+.cell.shake {
+  animation: cell-shake 0.35s ease;
+  box-shadow: inset 0 0 0 2px var(--color-warn);
+}
+
+@keyframes cell-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-16%); }
+  40% { transform: translateX(12%); }
+  60% { transform: translateX(-8%); }
+  80% { transform: translateX(5%); }
+}
+
+/* Successful-move exit feedback */
+.cell.exit-up { transform: translateY(-2000%); opacity: 0; }
+.cell.exit-down { transform: translateY(2000%); opacity: 0; }
+.cell.exit-left { transform: translateX(-2000%); opacity: 0; }
+.cell.exit-right { transform: translateX(2000%); opacity: 0; }
+
+.cell.cell-cleared {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Hint pulse — a calm glow, not a flashy attention-grab */
+.cell.hint {
+  animation: hint-pulse 1.1s ease;
+}
+
+@keyframes hint-pulse {
+  0% { box-shadow: inset 0 0 0 1px rgba(27, 27, 27, 0.06); }
+  30% { box-shadow: 0 0 0 5px var(--color-primary-tint), inset 0 0 0 2px var(--color-primary); }
+  100% { box-shadow: inset 0 0 0 1px rgba(27, 27, 27, 0.06); }
+}
+
+/* Keyboard focus cursor — separate from mouse/touch interaction so
+   arrow-key + Enter navigation is fully usable without a pointer. */
+#board:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-primary-tint);
+}
+
+.cell.kbd-focus {
+  box-shadow: 0 0 0 2px var(--color-primary);
+}
+
+/* ---------- Icon button disabled state (e.g. hint used up) ---------- */
+
+.btn-icon.is-disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.hint-count {
+  position: absolute;
+  top: -3px;
+  inset-inline-end: -3px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: #fdfbf7;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+/* ---------- Overlays ---------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(27, 22, 17, 0.42);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 10;
+}
+
+.overlay[hidden] {
+  display: none;
+}
+
+.overlay-card {
+  padding: 34px 28px 28px;
+  max-width: 320px;
+  width: 100%;
+  text-align: center;
+  background: var(--color-card-strong);
+}
+
+.overlay-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 14px;
+}
+
+.overlay-icon-win {
+  color: var(--color-primary);
+}
+
+.overlay-icon-warn {
+  color: var(--color-warn);
+}
+
+.overlay-card h2 {
+  font-size: 21px;
+  margin-bottom: 8px;
+}
+
+.overlay-card p {
+  margin: 0 0 22px;
+  color: var(--color-ink-soft);
+  font-size: 14px;
+}
+
+.win-time-line {
+  margin: -10px 0 22px !important;
+  font-size: 13px !important;
+  font-weight: 600;
+  color: var(--color-primary-dark) !important;
+}
+
+.win-time-line:empty {
+  display: none;
+}
+
+.win-time-line .time-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.win-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.win-actions .btn {
+  flex: 1 1 auto;
+}
+
+.share-toast {
+  margin: 12px 0 0 !important;
+  font-size: 12.5px !important;
+  font-weight: 600;
+  color: var(--color-primary-dark) !important;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.share-toast.visible {
+  opacity: 1;
+}
