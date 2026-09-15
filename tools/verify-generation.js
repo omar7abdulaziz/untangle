@@ -22,10 +22,10 @@ const GAME_JS_PATH = path.join(__dirname, '..', 'js', 'game.js');
 const RUNS_PER_DIFFICULTY = 20;
 
 const DIFFICULTIES = [
-  { key: 'easy', rows: 6, cols: 6 },
-  { key: 'medium', rows: 8, cols: 10 },
-  { key: 'hard', rows: 10, cols: 13 },
-  { key: 'nightmare', rows: 13, cols: 16 },
+  { key: 'easy', rows: 6, cols: 6, maxPieceLen: 4 },
+  { key: 'medium', rows: 8, cols: 10, maxPieceLen: 6 },
+  { key: 'hard', rows: 10, cols: 13, maxPieceLen: 7 },
+  { key: 'nightmare', rows: 13, cols: 16, maxPieceLen: 8 },
 ];
 
 function loadGenerationModule() {
@@ -83,7 +83,7 @@ function main() {
       const t0 = Date.now();
       let puzzle;
       try {
-        puzzle = generatePuzzle(diff.rows, diff.cols);
+        puzzle = generatePuzzle(diff.rows, diff.cols, diff.maxPieceLen);
       } catch (err) {
         firstFailure = firstFailure || ('generation threw: ' + err.message);
         continue;
