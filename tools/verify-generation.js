@@ -23,12 +23,12 @@ const RUNS_PER_DIFFICULTY = 10;
 
 // Keep these in sync with DIFFICULTY_PRESETS in js/game.js.
 const DIFFICULTIES = [
-  { key: 'easy', rows: 6, cols: 6, maxDirShare: 0.72 },
-  { key: 'medium', rows: 8, cols: 10, maxDirShare: 0.80 },
-  { key: 'hard', rows: 10, cols: 13, maxDirShare: 0.85 },
-  { key: 'nightmare', rows: 13, cols: 16, maxDirShare: 0.89 },
-  { key: 'impossible', rows: 16, cols: 20, maxDirShare: 0.93 },
-  { key: 'abyss', rows: 20, cols: 25, maxDirShare: 0.96 },
+  { key: 'easy', rows: 6, cols: 6, maxDirShare: 0.67 },
+  { key: 'medium', rows: 8, cols: 10, maxDirShare: 0.70 },
+  { key: 'hard', rows: 10, cols: 13, maxDirShare: 0.80 },
+  { key: 'nightmare', rows: 13, cols: 16, maxDirShare: 0.85 },
+  { key: 'impossible', rows: 16, cols: 20, maxDirShare: 0.85 },
+  { key: 'abyss', rows: 20, cols: 25, maxDirShare: 0.90 },
 ];
 
 function loadGenerationModule() {

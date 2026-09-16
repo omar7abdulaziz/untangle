@@ -200,19 +200,21 @@ function pickVariedDirection(dirGrid, rowDirCounts, colDirCounts, rows, cols, r,
  * left — it must take whatever direction is still open, penalty or
  * not. So a cell that currently has more than one safe option needs
  * to be placed WHILE it still has that choice, before other
- * placements close its other rays and force it.
+ * placements close its other rays and force it: any cell with a
+ * choice is tried before any forced (single-option) cell, all within
+ * the same iteration — never a hard restriction that would dead-end
+ * the whole build when a forced cell was the only safe move
+ * available.
  *
- * Boundary cells specifically are tried FIRST among cells with a
- * choice (ahead of interior cells with a choice), because a
- * boundary cell's own trivial-escape direction is always available
- * no matter what — nothing can ever block a ray that already leaves
- * the board — so it's the one most likely to survive, untouched,
- * until it's the only option left. Placing it early, while it still
- * has 2-3 real alternatives, is what gives the escape-penalty bias
- * anything to work with. Interior-with-choice is the next tier, and
- * forced (single-option) cells last — all within the same iteration,
- * never a hard restriction that would dead-end the whole build when
- * a forced cell was the only safe move available.
+ * An earlier version split this further into boundary-with-choice
+ * vs. interior-with-choice tiers (boundary cells always have a
+ * trivial off-the-board ray available, so the theory was to spend
+ * them first, while they still had real alternatives). Benchmarked
+ * against this flat version, that split needed LOOSER caps to stay
+ * solvable and was several times slower at every board size — it
+ * spends the safest placements first and leaves harder ones for
+ * later, which is exactly backwards for the wouldStrandAnyCell guard
+ * finding a safe move quickly. Removed rather than kept as a knob.
  */
 function tryBuildPieces(rows, cols) {
   const grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
@@ -225,8 +227,7 @@ function tryBuildPieces(rows, cols) {
   let nextId = 0;
 
   while (filled < totalCells) {
-    const boundaryWithChoice = [];
-    const interiorWithChoice = [];
+    const withChoice = [];
     const forced = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
@@ -234,19 +235,13 @@ function tryBuildPieces(rows, cols) {
         const dirs = ALL_DIRS.filter((d) => isRayClear(grid, rows, cols, r, c, d));
         if (dirs.length === 0) continue;
         const cand = { r, c, dirs };
-        if (dirs.length === 1) {
-          forced.push(cand);
-        } else if (r === 0 || r === rows - 1 || c === 0 || c === cols - 1) {
-          boundaryWithChoice.push(cand);
-        } else {
-          interiorWithChoice.push(cand);
-        }
+        (dirs.length > 1 ? withChoice : forced).push(cand);
       }
     }
-    if (boundaryWithChoice.length === 0 && interiorWithChoice.length === 0 && forced.length === 0) return null; // dead end — retry generation
+    if (withChoice.length === 0 && forced.length === 0) return null; // dead end — retry generation
 
     let placed = false;
-    for (const tier of [boundaryWithChoice, interiorWithChoice, forced]) {
+    for (const tier of [withChoice, forced]) {
       for (const cand of shuffled(tier)) {
         if (!wouldStrandAnyCell(grid, rows, cols, cand.r, cand.c, nextId)) {
           const dir = pickVariedDirection(dirGrid, rowDirCounts, colDirCounts, rows, cols, cand.r, cand.c, cand.dirs);
@@ -372,31 +367,30 @@ function generatePuzzle(rows, cols, maxDirShare) {
 // impossible, because the wouldStrandAnyCell safety guard
 // structurally favors "sweeping" a whole row/column in one direction
 // (it's the fill order least likely to strand a cell). What actually
-// moved these numbers down from the original 85-90% is the
-// boundaryWithChoice/interiorWithChoice/forced placement order in
-// tryBuildPieces plus the trivial-escape penalty in pickVariedDirection
-// (see their comments) — together those cut the share of perimeter
-// cells that point straight off the board with zero thought needed
-// from 65-90% down to ~50-58% at every size, which is the real,
-// structural answer to "harder exit directions, not just a bigger
-// grid": it holds for every tier below, not only the hardest one.
-// Each maxDirShare value here is the lowest that stayed comfortably
-// fast (avg well under 1s, worst case observed under ~1.5s) with that
-// placement order in place; bigger boards need a bit more headroom —
-// abyss (20x25, the new hardest tier) needed the most: 0.96 was the
-// tightest that stayed reliably fast across a 60-run stress test
-// (avg 343ms, p90 702ms, max 1143ms); 0.95 occasionally spiked past
-// 2.5s. It's still meaningfully harder than impossible in the way
-// that matters — same ~55-58% instant-exit-edge share on a board
-// with 180 more cells and longer forced dependency chains — not
-// "harder" purely because the grid got bigger.
+// moved these numbers down is the withChoice/forced placement order
+// in tryBuildPieces plus the trivial-escape penalty in
+// pickVariedDirection (see their comments): placing any cell that
+// still has a real direction choice before it can get forced into
+// whatever's left, in ONE tier (not split further by boundary vs.
+// interior — that split was tried and measured to only add overhead:
+// same or looser achievable caps, several times slower at every
+// size, because it burns through the safest boundary placements
+// before touching interior ones that would otherwise resolve a
+// tension for free). Each value here is the lowest that stayed fast
+// across a 25-run benchmark per difficulty (avg well under 500ms,
+// worst case observed under 1.3s at the two biggest tiers, under
+// 400ms everywhere else) with that single-tier ordering in place;
+// bigger boards structurally need a bit more headroom than smaller
+// ones, so this loosens slightly at the high end rather than
+// tightening — going even one notch lower at any tier's own size
+// pushes worst-case time past 2-4s (measured, not assumed).
 const DIFFICULTY_PRESETS = {
-  easy: { rows: 6, cols: 6, maxAttempts: 3, maxDirShare: 0.72, labelKey: 'diff_easy' },
-  medium: { rows: 8, cols: 10, maxAttempts: 3, maxDirShare: 0.80, labelKey: 'diff_medium' },
-  hard: { rows: 10, cols: 13, maxAttempts: 3, maxDirShare: 0.85, labelKey: 'diff_hard' },
-  nightmare: { rows: 13, cols: 16, maxAttempts: 3, maxDirShare: 0.89, labelKey: 'diff_nightmare' },
-  impossible: { rows: 16, cols: 20, maxAttempts: 1, maxDirShare: 0.93, labelKey: 'diff_impossible' },
-  abyss: { rows: 20, cols: 25, maxAttempts: 1, maxDirShare: 0.96, labelKey: 'diff_abyss' },
+  easy: { rows: 6, cols: 6, maxAttempts: 3, maxDirShare: 0.67, labelKey: 'diff_easy' },
+  medium: { rows: 8, cols: 10, maxAttempts: 3, maxDirShare: 0.70, labelKey: 'diff_medium' },
+  hard: { rows: 10, cols: 13, maxAttempts: 3, maxDirShare: 0.80, labelKey: 'diff_hard' },
+  nightmare: { rows: 13, cols: 16, maxAttempts: 3, maxDirShare: 0.85, labelKey: 'diff_nightmare' },
+  impossible: { rows: 16, cols: 20, maxAttempts: 1, maxDirShare: 0.85, labelKey: 'diff_impossible' },
+  abyss: { rows: 20, cols: 25, maxAttempts: 1, maxDirShare: 0.90, labelKey: 'diff_abyss' },
 };
 
 /**
