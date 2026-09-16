@@ -149,16 +149,26 @@ function makeIndependentCell(r, c, dir, id, rows, cols) {
  * Among a cell's several currently-safe directions (all equally valid
  * for solvability — see the caller), prefer whichever one keeps ITS
  * ROW and ITS COLUMN most balanced across all 4 directions so far,
- * with immediate-neighbor repetition as a lighter secondary nudge.
+ * with immediate-neighbor repetition as a lighter secondary nudge —
+ * PLUS a strong penalty on a boundary cell's own trivial escape route
+ * (the direction that leaves the board on step 1, e.g. UP for any
+ * row-0 cell). That direction is always available no matter how full
+ * the board gets — nothing can ever block a ray that's already off
+ * the board — so left unpenalized it's what a boundary cell gets
+ * forced into once its other options close up, which is exactly why
+ * every difficulty measured 65-90%+ of perimeter cells pointing
+ * straight outward (instantly removable, zero thought) even with the
+ * row/column cap already in effect: that cap watches compass-direction
+ * dominance per line, not "does THIS cell point along its own escape."
  * Purely a choice among options already proven safe — it can never
  * pick an unsafe direction, so it can't affect solvability.
  *
- * This is what makes hasExcessiveDirectionRun's cap (see below)
- * achievable quickly instead of by expensive luck: reacting only to
- * immediate neighbors stops short local clusters, but says nothing
- * about a row/column that drifts toward one direction while spread
- * out — actively minimizing each row's and column's running tally is
- * what keeps the whole line balanced as it fills in.
+ * This only ever runs on a cell that HAS more than one safe option
+ * (tryBuildPieces returns dirs[0] directly otherwise), so its actual
+ * leverage over the finished board's balance depends entirely on how
+ * many cells still have a real choice by the time they're placed —
+ * which is what tryBuildPieces's withChoice/forced placement order
+ * is for.
  */
 function pickVariedDirection(dirGrid, rowDirCounts, colDirCounts, rows, cols, r, c, dirs) {
   if (dirs.length === 1) return dirs[0];
@@ -173,13 +183,37 @@ function pickVariedDirection(dirGrid, rowDirCounts, colDirCounts, rows, cols, r,
   }
 
   function pressure(d) {
-    return (rowDirCounts[r][d.name] || 0) + (colDirCounts[c][d.name] || 0) + (neighborCounts[d.name] || 0) * 0.5;
+    const trivialEscapePenalty = stepsToLeaveBoard(r, c, d, rows, cols) === 1 ? 6 : 0;
+    return (rowDirCounts[r][d.name] || 0) + (colDirCounts[c][d.name] || 0) + (neighborCounts[d.name] || 0) * 0.5 + trivialEscapePenalty;
   }
 
   const ranked = shuffled(dirs).sort((a, b) => pressure(a) - pressure(b));
   return ranked[0];
 }
 
+/**
+ * Which still-empty cell gets placed next, each iteration, decides
+ * how much real choice is left by the time pickVariedDirection's
+ * trivial-escape penalty (above) gets to act on it. As the grid
+ * fills, a cell's safe directions (isRayClear) shrink toward exactly
+ * one, and once a cell has only one option left there is no "choice"
+ * left — it must take whatever direction is still open, penalty or
+ * not. So a cell that currently has more than one safe option needs
+ * to be placed WHILE it still has that choice, before other
+ * placements close its other rays and force it.
+ *
+ * Boundary cells specifically are tried FIRST among cells with a
+ * choice (ahead of interior cells with a choice), because a
+ * boundary cell's own trivial-escape direction is always available
+ * no matter what — nothing can ever block a ray that already leaves
+ * the board — so it's the one most likely to survive, untouched,
+ * until it's the only option left. Placing it early, while it still
+ * has 2-3 real alternatives, is what gives the escape-penalty bias
+ * anything to work with. Interior-with-choice is the next tier, and
+ * forced (single-option) cells last — all within the same iteration,
+ * never a hard restriction that would dead-end the whole build when
+ * a forced cell was the only safe move available.
+ */
 function tryBuildPieces(rows, cols) {
   const grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
   const dirGrid = Array.from({ length: rows }, () => new Array(cols).fill(null));
@@ -191,47 +225,43 @@ function tryBuildPieces(rows, cols) {
   let nextId = 0;
 
   while (filled < totalCells) {
-    let cellCandidates = [];
-    let boundaryWithChoice = [];
+    const boundaryWithChoice = [];
+    const interiorWithChoice = [];
+    const forced = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (grid[r][c] !== null) continue;
         const dirs = ALL_DIRS.filter((d) => isRayClear(grid, rows, cols, r, c, d));
         if (dirs.length === 0) continue;
         const cand = { r, c, dirs };
-        cellCandidates.push(cand);
-        // A cell on the board's true edge always has its "straight
-        // toward that edge" ray trivially clear, unconditionally —
-        // nothing can ever block a step that's already off the
-        // board. Left to the normal order, boundary cells often
-        // don't get placed until everything ELSE they could point
-        // toward is already blocked, leaving that trivial direction
-        // as their only option — which is exactly what fills whole
-        // edge rows/columns with one repeated direction. Placing
-        // boundary cells first, while they still have more than one
-        // safe option, is what gives pickVariedDirection an actual
-        // choice to work with for them.
-        const onEdge = r === 0 || r === rows - 1 || c === 0 || c === cols - 1;
-        if (onEdge && dirs.length > 1) boundaryWithChoice.push(cand);
+        if (dirs.length === 1) {
+          forced.push(cand);
+        } else if (r === 0 || r === rows - 1 || c === 0 || c === cols - 1) {
+          boundaryWithChoice.push(cand);
+        } else {
+          interiorWithChoice.push(cand);
+        }
       }
     }
-    if (cellCandidates.length === 0) return null; // dead end — retry generation
-    if (boundaryWithChoice.length > 0) cellCandidates = boundaryWithChoice;
+    if (boundaryWithChoice.length === 0 && interiorWithChoice.length === 0 && forced.length === 0) return null; // dead end — retry generation
 
     let placed = false;
-    for (const cand of shuffled(cellCandidates)) {
-      if (!wouldStrandAnyCell(grid, rows, cols, cand.r, cand.c, nextId)) {
-        const dir = pickVariedDirection(dirGrid, rowDirCounts, colDirCounts, rows, cols, cand.r, cand.c, cand.dirs);
-        grid[cand.r][cand.c] = nextId;
-        dirGrid[cand.r][cand.c] = dir;
-        rowDirCounts[cand.r][dir.name] = (rowDirCounts[cand.r][dir.name] || 0) + 1;
-        colDirCounts[cand.c][dir.name] = (colDirCounts[cand.c][dir.name] || 0) + 1;
-        pieces.push(makeIndependentCell(cand.r, cand.c, dir, nextId, rows, cols));
-        filled++;
-        nextId++;
-        placed = true;
-        break;
+    for (const tier of [boundaryWithChoice, interiorWithChoice, forced]) {
+      for (const cand of shuffled(tier)) {
+        if (!wouldStrandAnyCell(grid, rows, cols, cand.r, cand.c, nextId)) {
+          const dir = pickVariedDirection(dirGrid, rowDirCounts, colDirCounts, rows, cols, cand.r, cand.c, cand.dirs);
+          grid[cand.r][cand.c] = nextId;
+          dirGrid[cand.r][cand.c] = dir;
+          rowDirCounts[cand.r][dir.name] = (rowDirCounts[cand.r][dir.name] || 0) + 1;
+          colDirCounts[cand.c][dir.name] = (colDirCounts[cand.c][dir.name] || 0) + 1;
+          pieces.push(makeIndependentCell(cand.r, cand.c, dir, nextId, rows, cols));
+          filled++;
+          nextId++;
+          placed = true;
+          break;
+        }
       }
+      if (placed) break;
     }
     if (!placed) return null; // every candidate alone would strand something
   }
@@ -335,23 +365,38 @@ function generatePuzzle(rows, cols, maxDirShare) {
 // generation algorithm above.
 // =================================================================
 
-// maxDirShare values below are empirically calibrated (see the
-// commit message for the benchmark), not the originally-requested
-// 30-50% — that range made generation take several seconds to over
-// 15s, or fail outright, because the wouldStrandAnyCell safety guard
+// maxDirShare values below are empirically calibrated against
+// tools/verify-generation.js (real timed runs, not guesses). A flat
+// 30-50% target was tried first and rejection-sampling against it
+// never once succeeded in 5000 tries at ANY difficulty — not slow,
+// impossible, because the wouldStrandAnyCell safety guard
 // structurally favors "sweeping" a whole row/column in one direction
-// (it's the fill order least likely to strand a cell, so
-// rejection-sampling against a strict cap fights the very guard that
-// keeps every board solvable). ~85-90% is where a compliant board
-// reliably shows up in well under 100ms; below ~80%, nightmare-sized
-// boards took 4+ seconds and hard/nightmare sometimes failed to find
-// one at all within thousands of tries.
+// (it's the fill order least likely to strand a cell). What actually
+// moved these numbers down from the original 85-90% is the
+// boundaryWithChoice/interiorWithChoice/forced placement order in
+// tryBuildPieces plus the trivial-escape penalty in pickVariedDirection
+// (see their comments) — together those cut the share of perimeter
+// cells that point straight off the board with zero thought needed
+// from 65-90% down to ~50-58% at every size, which is the real,
+// structural answer to "harder exit directions, not just a bigger
+// grid": it holds for every tier below, not only the hardest one.
+// Each maxDirShare value here is the lowest that stayed comfortably
+// fast (avg well under 1s, worst case observed under ~1.5s) with that
+// placement order in place; bigger boards need a bit more headroom —
+// abyss (20x25, the new hardest tier) needed the most: 0.96 was the
+// tightest that stayed reliably fast across a 60-run stress test
+// (avg 343ms, p90 702ms, max 1143ms); 0.95 occasionally spiked past
+// 2.5s. It's still meaningfully harder than impossible in the way
+// that matters — same ~55-58% instant-exit-edge share on a board
+// with 180 more cells and longer forced dependency chains — not
+// "harder" purely because the grid got bigger.
 const DIFFICULTY_PRESETS = {
-  easy: { rows: 6, cols: 6, maxAttempts: 3, maxDirShare: 0.85, labelKey: 'diff_easy' },
-  medium: { rows: 8, cols: 10, maxAttempts: 3, maxDirShare: 0.85, labelKey: 'diff_medium' },
+  easy: { rows: 6, cols: 6, maxAttempts: 3, maxDirShare: 0.72, labelKey: 'diff_easy' },
+  medium: { rows: 8, cols: 10, maxAttempts: 3, maxDirShare: 0.80, labelKey: 'diff_medium' },
   hard: { rows: 10, cols: 13, maxAttempts: 3, maxDirShare: 0.85, labelKey: 'diff_hard' },
-  nightmare: { rows: 13, cols: 16, maxAttempts: 3, maxDirShare: 0.88, labelKey: 'diff_nightmare' },
-  impossible: { rows: 16, cols: 20, maxAttempts: 1, maxDirShare: 0.90, labelKey: 'diff_impossible' },
+  nightmare: { rows: 13, cols: 16, maxAttempts: 3, maxDirShare: 0.89, labelKey: 'diff_nightmare' },
+  impossible: { rows: 16, cols: 20, maxAttempts: 1, maxDirShare: 0.93, labelKey: 'diff_impossible' },
+  abyss: { rows: 20, cols: 25, maxAttempts: 1, maxDirShare: 0.96, labelKey: 'diff_abyss' },
 };
 
 /**

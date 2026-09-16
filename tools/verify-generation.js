@@ -23,11 +23,12 @@ const RUNS_PER_DIFFICULTY = 10;
 
 // Keep these in sync with DIFFICULTY_PRESETS in js/game.js.
 const DIFFICULTIES = [
-  { key: 'easy', rows: 6, cols: 6, maxDirShare: 0.85 },
-  { key: 'medium', rows: 8, cols: 10, maxDirShare: 0.85 },
+  { key: 'easy', rows: 6, cols: 6, maxDirShare: 0.72 },
+  { key: 'medium', rows: 8, cols: 10, maxDirShare: 0.80 },
   { key: 'hard', rows: 10, cols: 13, maxDirShare: 0.85 },
-  { key: 'nightmare', rows: 13, cols: 16, maxDirShare: 0.88 },
-  { key: 'impossible', rows: 16, cols: 20, maxDirShare: 0.90 },
+  { key: 'nightmare', rows: 13, cols: 16, maxDirShare: 0.89 },
+  { key: 'impossible', rows: 16, cols: 20, maxDirShare: 0.93 },
+  { key: 'abyss', rows: 20, cols: 25, maxDirShare: 0.96 },
 ];
 
 function loadGenerationModule() {
@@ -76,6 +77,22 @@ function worstRowColShare(pieces, rows, cols, cellKey) {
   return worst;
 }
 
+/** Share of perimeter cells that point straight off the board (instantly
+ *  exitable with zero thought, before anything else has moved) — the
+ *  direct measure of "harder exit directions, not just a bigger grid". */
+function outwardBoundaryShare(pieces, rows, cols) {
+  let perimeter = 0;
+  let outward = 0;
+  for (const piece of pieces) {
+    const cell = piece.cells[0];
+    const onEdge = cell.r === 0 || cell.r === rows - 1 || cell.c === 0 || cell.c === cols - 1;
+    if (!onEdge) continue;
+    perimeter++;
+    if (piece.headExitPath.length === 1) outward++;
+  }
+  return perimeter === 0 ? 0 : outward / perimeter;
+}
+
 function checkFullCoverage(cellOwner, rows, cols, pieces, cellKey) {
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -109,6 +126,8 @@ function main() {
     let totalMs = 0;
     let maxMs = 0;
     let worstShareSeen = 0;
+    let outwardShareTotal = 0;
+    let outwardShareMax = 0;
     let firstFailure = null;
 
     for (let i = 0; i < RUNS_PER_DIFFICULTY; i++) {
@@ -144,6 +163,10 @@ function main() {
         continue;
       }
 
+      const outwardShare = outwardBoundaryShare(puzzle.pieces, diff.rows, diff.cols);
+      outwardShareTotal += outwardShare;
+      outwardShareMax = Math.max(outwardShareMax, outwardShare);
+
       passed++;
     }
 
@@ -158,6 +181,8 @@ function main() {
       maxMs,
       worstShareSeen: (worstShareSeen * 100).toFixed(1),
       capPct: (diff.maxDirShare * 100).toFixed(0),
+      outwardAvgPct: (100 * outwardShareTotal / Math.max(passed, 1)).toFixed(1),
+      outwardMaxPct: (outwardShareMax * 100).toFixed(1),
       ok,
       firstFailure,
     });
@@ -169,7 +194,8 @@ function main() {
     console.log(
       '  [' + status + ']  ' + row.key.padEnd(11) + row.grid.padEnd(8) +
       row.passed + '/' + row.of + ' solvable    cap=' + row.capPct + '%  worstSeen=' + row.worstShareSeen + '%' +
-      '    avg ' + row.avgMs + 'ms  max ' + row.maxMs + 'ms'
+      '    avg ' + row.avgMs + 'ms  max ' + row.maxMs + 'ms' +
+      '    instant-exit edges: avg ' + row.outwardAvgPct + '%  max ' + row.outwardMaxPct + '%'
     );
     if (!row.ok && row.firstFailure) {
       console.log('           ↳ first failure: ' + row.firstFailure);

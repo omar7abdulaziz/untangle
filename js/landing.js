@@ -6,8 +6,10 @@
    - the last-played difficulty card gets a subtle highlight
 
    Difficulty cards are plain links (?difficulty=easy|medium|hard|
-   nightmare), so navigation itself needs no JS and still works with
-   JS disabled — everything here is a progressive enhancement. */
+   nightmare|impossible|abyss), so navigation itself needs no JS and
+   still works with JS disabled — everything here is a progressive
+   enhancement, and reads cards via [data-difficulty] so a new
+   difficulty tier needs no changes here. */
 
 function formatClockTime(ms) {
   const totalSeconds = Math.max(0, Math.round(ms / 1000));

@@ -18,7 +18,7 @@
    than waiting on the background revalidation above.
    ============================================================ */
 
-const CACHE_VERSION = 'untangle-v8';
+const CACHE_VERSION = 'untangle-v9';
 
 const PRECACHE_URLS = [
   './',
